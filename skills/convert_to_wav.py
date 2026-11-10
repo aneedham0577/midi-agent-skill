@@ -15,11 +15,25 @@ from typing import Optional
 @dataclass
 class ConvertOptions:
     """Configuration for MIDI to WAV conversion."""
-    soundfont_path: Optional[str] = None  # Defaults to A320U.sf2 in soundfonts directory
+    soundfont_path: Optional[str] = None  # Defaults to GeneralUser-GS.sf2 (or A320U.sf2) in soundfonts directory
     sample_rate: int = 44100
-    gain: float = 0.5
-    reverb: bool = False  # Disabled for cleaner output
-    chorus: bool = False  # Disabled for cleaner output
+    gain: float = 0.6
+    reverb: bool = True   # Studio space and depth
+    chorus: bool = True   # Stereo warmth and thickness
+
+
+def find_fluidsynth() -> Optional[str]:
+    """Find fluidsynth executable in PATH or in local bin directory."""
+    system_path = shutil.which("fluidsynth")
+    if system_path:
+        return system_path
+
+    # Check local bin/ directory
+    local_bin = Path(__file__).parent.parent / "bin" / "fluidsynth.exe"
+    if local_bin.exists():
+        return str(local_bin)
+
+    return None
 
 
 def convert_to_wav(midi_path: str, options: Optional[ConvertOptions] = None) -> str:
@@ -44,6 +58,13 @@ def convert_to_wav(midi_path: str, options: Optional[ConvertOptions] = None) -> 
     if options is None:
         options = ConvertOptions()
 
+    fluidsynth_exe = find_fluidsynth()
+    if not fluidsynth_exe:
+        raise RuntimeError(
+            "FluidSynth is not installed.\n"
+            "Install it with: brew install fluidsynth (macOS) or place fluidsynth.exe in external/midi-agent-skill/bin/"
+        )
+
     # Validate MIDI file exists
     midi_file = Path(midi_path)
     if not midi_file.exists():
@@ -53,13 +74,20 @@ def convert_to_wav(midi_path: str, options: Optional[ConvertOptions] = None) -> 
     if options.soundfont_path:
         soundfont = Path(options.soundfont_path)
     else:
-        soundfont = Path(__file__).parent.parent / "soundfonts" / "A320U.sf2"
+        # Default to GeneralUser-GS.sf2, fall back to FluidR3 or A320U
+        sf_dir = Path(__file__).parent.parent / "soundfonts"
+        candidates = [
+            sf_dir / "GeneralUser-GS.sf2",
+            sf_dir / "FluidR3_GM_GS.sf2",
+            sf_dir / "FluidR3_GM.sf2",
+            sf_dir / "A320U.sf2"
+        ]
+        soundfont = next((p for p in candidates if p.exists()), candidates[-1])
 
     if not soundfont.exists():
         raise FileNotFoundError(
             f"SoundFont not found: {soundfont}\n"
-            f"Please download A320U.sf2 from https://musical-artifacts.com/artifacts/5906 "
-            f"and place it in the soundfonts directory."
+            f"Please place GeneralUser-GS.sf2 or A320U.sf2 in the soundfonts directory."
         )
 
     # Set up output path
@@ -70,7 +98,7 @@ def convert_to_wav(midi_path: str, options: Optional[ConvertOptions] = None) -> 
 
     # Build FluidSynth command
     cmd = [
-        "fluidsynth",
+        fluidsynth_exe,
         "-ni",  # Non-interactive, no shell
         f"--sample-rate={options.sample_rate}",
         f"--gain={options.gain}",
@@ -91,7 +119,7 @@ def convert_to_wav(midi_path: str, options: Optional[ConvertOptions] = None) -> 
     except FileNotFoundError:
         raise RuntimeError(
             "FluidSynth is not installed.\n"
-            "Install it with: brew install fluidsynth (macOS) or apt-get install fluidsynth (Linux)"
+            "Install it with: brew install fluidsynth (macOS) or place fluidsynth.exe in external/midi-agent-skill/bin/"
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"FluidSynth conversion failed: {e.stderr}")
@@ -100,8 +128,8 @@ def convert_to_wav(midi_path: str, options: Optional[ConvertOptions] = None) -> 
 
 
 def is_fluidsynth_available() -> bool:
-    """Check if FluidSynth is available on the system."""
-    return shutil.which("fluidsynth") is not None
+    """Check if FluidSynth is available on the system or in local bin."""
+    return find_fluidsynth() is not None
 
 
 def is_soundfont_available() -> bool:

@@ -1,3 +1,11 @@
+**/__pycache__/**
+
+output/**
+
+soundfonts/**
+
+bin/**
+
 ### Node template
 # Logs
 logs
